@@ -102,8 +102,13 @@ async def my_agent(ctx: agents.JobContext):
         ),
     )
 
+    # Determine the source for a custom greeting
+    # Logic: If it's a SIP call, it's a "Phone" call. Otherwise, it's "Web".
+    is_phone = any(p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP for p in ctx.room.remote_participants.values())
+    source_type = "phone" if is_phone else "web interface"
+
     await session.generate_reply(
-        instructions="Greet the user by name if you know it from your memory."
+        instructions=f"Greet the user by name if known. Mention that they are connecting via {source_type}."
     )
 
 if __name__ == "__main__":
