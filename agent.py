@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io, AutoSubscribe, function_tool, RunContext
-from livekit.plugins import openai, noise_cancellation
+from livekit.plugins import openai, noise_cancellation, bey
 
 load_dotenv(".env.local")
 
@@ -88,6 +88,13 @@ async def my_agent(ctx: agents.JobContext):
     session = AgentSession(
         llm=model,
     )
+
+    avatar = bey.AvatarSession(
+        avatar_id="2bc759ab-a7e5-4b91-941d-9e42450d6546",  # ID of the Beyond Presence avatar to use
+    )
+
+    # Start the avatar and wait for it to join
+    await avatar.start(session, room=ctx.room)
 
     await session.start(
         room=ctx.room,
