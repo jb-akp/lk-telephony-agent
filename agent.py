@@ -10,13 +10,12 @@ from livekit.plugins import openai, noise_cancellation, bey
 load_dotenv(".env.local")
 
 def get_memory_string():
-    """
-    Stub: Load memory from Google Sheets for web debrief.
-    TODO: Implement Google Sheets API integration.
-    """
-    # TODO: Implement Google Sheets API to load call history
-    # For now, return empty memory
-    return "No known details about the user."
+    """Load memory from Google Sheets via n8n GET endpoint."""
+    try:
+        response = requests.get("https://n8n.n8nsite.live/webhook-test/2ebcbefe-2bf1-48f9-bf99-ba374b8e8976")
+        return response.text if response.status_code == 200 else "No known details about the user."
+    except:
+        return "No known details about the user."
 
 class Assistant(Agent):
     def __init__(self, initial_memory, is_phone) -> None:
@@ -72,8 +71,8 @@ async def my_agent(ctx: agents.JobContext):
     source_log = "PHONE_CALL" if is_phone else "WEB_INTERFACE"
     logging.info(f"Connecting via: {source_log} (Room: {ctx.room.name})")
 
-    # Load memory 
-    current_memory = get_memory_string()
+    # Load memory only for web debriefs
+    current_memory = get_memory_string() if not is_phone else "No known details about the user."
 
     # 2. MODEL CONFIG (OpenAI Mini)
     model = openai.realtime.RealtimeModel(
