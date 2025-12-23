@@ -1,7 +1,6 @@
 import logging
 import os
-import asyncio
-import aiohttp
+import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from livekit import agents, rtc
@@ -9,9 +8,6 @@ from livekit.agents import AgentServer, AgentSession, Agent, room_io, AutoSubscr
 from livekit.plugins import openai, noise_cancellation, bey
 
 load_dotenv(".env.local")
-
-# n8n webhook URL - replace with your actual webhook URL
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "https://your-n8n-instance.com/webhook/call-transcript")
 
 def get_memory_string():
     """
@@ -120,10 +116,7 @@ async def my_agent(ctx: agents.JobContext):
                 "transcript": str(session.llm._chat_ctx.messages),
                 "timestamp": datetime.utcnow().isoformat()
             }
-            async def send_to_n8n():
-                async with aiohttp.ClientSession() as http_session:
-                    await http_session.post(N8N_WEBHOOK_URL, json=payload)
-            asyncio.create_task(send_to_n8n())
+            requests.post("https://n8n.n8nsite.live/webhook-test/api/path", json=payload)
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
 

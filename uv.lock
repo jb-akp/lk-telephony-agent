@@ -809,6 +809,7 @@ dependencies = [
     { name = "livekit-plugins-noise-cancellation" },
     { name = "livekit-plugins-openai" },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [package.metadata]
@@ -817,6 +818,7 @@ requires-dist = [
     { name = "livekit-plugins-noise-cancellation", specifier = "~=0.2" },
     { name = "livekit-plugins-openai", specifier = ">=0.10" },
     { name = "python-dotenv" },
+    { name = "requests" },
 ]
 
 [[package]]

@@ -7,6 +7,6 @@ dependencies = [
     "livekit-plugins-openai>=0.10", # Version critical for Mini support
     "livekit-plugins-noise-cancellation~=0.2",
     "python-dotenv",
-    "aiohttp",
+    "requests",
 ]
 
