@@ -57,8 +57,11 @@ class Assistant(Agent):
         # Disallow interruptions to ensure the tool completes
         run_ctx.disallow_interruptions()
         
-        # Inform the user we're checking
-        await run_ctx.session.say("One second, I'm checking.", allow_interruptions=False)
+        # Inform the user we're checking (using generate_reply for RealtimeModel)
+        await run_ctx.session.generate_reply(
+            instructions="Say: 'One second, I'm checking.'",
+            allow_interruptions=False
+        )
         
         # Load memory from Google Sheets via n8n
         response = requests.get("https://n8n.n8nsite.live/webhook/memory")
