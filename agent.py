@@ -1,62 +1,81 @@
+import json
 import logging
 import os
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, AutoSubscribe
+from livekit.agents import AgentServer, AgentSession, Agent, room_io, AutoSubscribe, RunContext
+from livekit.agents.llm import function_tool
 from livekit.plugins import openai, noise_cancellation, bey
 
 load_dotenv(".env.local")
 
-def get_memory_string():
-    """Load memory from Google Sheets via n8n GET endpoint."""
-    try:
-        response = requests.get("https://n8n.n8nsite.live/webhook-test/2ebcbefe-2bf1-48f9-bf99-ba374b8e8976")
-        return response.text if response.status_code == 200 else "No known details about the user."
-    except:
-        return "No known details about the user."
-
 class Assistant(Agent):
-    def __init__(self, initial_memory, is_phone) -> None:
+    def __init__(self, is_phone) -> None:
         # DYNAMIC PERSONA INJECTION
         # We customize the system prompt based on the source (Phone vs Web)
         
-        base_context = f"KNOWN MEMORY:\n{initial_memory}"
-
         if is_phone:
             # PHONE MODE: The "Gatekeeper"
             # Strict, protective, efficient.
-            instructions = f"""
+            instructions = """
             You are "Sarah", a protective AI Receptionist for James.
-            You are currently answering a real phone call (SIP).
+            You are currently answering a real phone call (SIP) that was forwarded from James's voicemail.
             
             YOUR GOALS:
             1. Screen the call. James is busy and didn't answer, so the call was forwarded to you.
-            2. Check MEMORY. If the caller is known/vip, put them through (simulate this by being polite).
-            3. If the caller is SPAM (car warranty, insurance, etc.), tell them to remove this number and hang up.
-            4. If it is a legitimate lead, ask for their name and message.
+            2. If the caller is SPAM (car warranty, insurance, etc.), tell them to remove this number and hang up.
+            3. If it is a legitimate call, collect their name and full message. Let them finish speaking completely before ending the call.
             
-            {base_context}
-            
-            Keep responses short (under 2 sentences). Be professional but firm.
+            Keep responses short (under 2 sentences). Be professional but firm. Make sure to capture the complete message from the caller.
             """
         else:
             # WEB MODE: The "Chief of Staff"
             # Visual, analytical, helpful.
-            instructions = f"""
+            instructions = """
             You are "Sarah", James's Chief of Staff.
             You are currently appearing as a 3D Avatar on the web dashboard.
             
             YOUR GOALS:
             1. Welcome James back.
-            2. Offer a "Debrief" of recent calls based on the MEMORY logs.
-            3. Visualise the data if asked.
+            2. When James asks about recent calls, a debrief, or what happened in previous conversations, use the get_call_debrief function tool to retrieve the information from Google Sheets.
+            3. After retrieving the call history, summarize it clearly and offer to help with anything else.
             
-            {base_context}
+            Always use the get_call_debrief tool when asked about call history, recent calls, or debriefs.
             """
         
         super().__init__(instructions=instructions)
+        self.is_phone = is_phone
+    
+    @function_tool()
+    async def get_call_debrief(self, run_ctx: RunContext) -> str:
+        """Retrieve recent call history and debrief information from Google Sheets.
+        
+        Use this when the user asks for a debrief, summary of recent calls, or wants to know what happened in previous conversations.
+        """
+        # Disallow interruptions to ensure the tool completes
+        run_ctx.disallow_interruptions()
+        
+        # Inform the user we're checking
+        await run_ctx.session.say("One second, I'm checking.", allow_interruptions=False)
+        
+        # Load memory from Google Sheets via n8n
+        response = requests.get("https://n8n.n8nsite.live/webhook/memory")
+        memory = response.text if response.status_code == 200 else ""
+        
+        return memory
+    
+    async def on_enter(self):
+        """Generate initial greeting based on connection source."""
+        if not self.is_phone:
+            await self.session.generate_reply(
+                instructions="Welcome back, James. How can I help you today?"
+            )
+        else:
+            await self.session.generate_reply(
+                instructions="Say exactly: 'Hello, this is James's AI. Who is calling?'"
+            )
 
 server = AgentServer()
 
@@ -70,9 +89,6 @@ async def my_agent(ctx: agents.JobContext):
 
     source_log = "PHONE_CALL" if is_phone else "WEB_INTERFACE"
     logging.info(f"Connecting via: {source_log} (Room: {ctx.room.name})")
-
-    # Load memory only for web debriefs
-    current_memory = get_memory_string() if not is_phone else "No known details about the user."
 
     # 2. MODEL CONFIG (OpenAI Mini)
     model = openai.realtime.RealtimeModel(
@@ -95,7 +111,7 @@ async def my_agent(ctx: agents.JobContext):
     # We pass 'is_phone' to the Assistant so it knows which persona to use.
     await session.start(
         room=ctx.room,
-        agent=Assistant(initial_memory=current_memory, is_phone=is_phone),
+        agent=Assistant(is_phone=is_phone),
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
                 # Use telephony noise cancellation for phone calls
@@ -111,26 +127,17 @@ async def my_agent(ctx: agents.JobContext):
     def on_participant_disconnected(participant: rtc.RemoteParticipant):
         # Only handle SIP participant disconnections (user hangup)
         if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+            logging.info("SIP participant disconnected, sending transcript to n8n...")
             payload = {
-                "transcript": str(session.llm._chat_ctx.messages),
+                "transcript": json.dumps(session.history.to_dict()),
                 "timestamp": datetime.utcnow().isoformat()
             }
-            requests.post("https://n8n.n8nsite.live/webhook-test/api/path", json=payload)
+            try:
+                response = requests.post("https://n8n.n8nsite.live/webhook/api/path", json=payload)
+                logging.info(f"Transcript sent to n8n. Status: {response.status_code}")
+            except Exception as e:
+                logging.error(f"Failed to send transcript to n8n: {e}")
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
-
-    # 6. INITIAL GREETING TRIGGER
-    # Triggers the AI to speak first with the correct context
-    if is_phone:
-        # PHONE MODE (Spam Blocker)
-        # We give it the EXACT sentence to read so it never hallucinates.
-        await session.generate_reply(
-            instructions="Say exactly: 'Hello, this is James's AI. Who is calling?'"
-        )
-    else:
-        # WEB MODE (Chief of Staff)
-        await session.generate_reply(
-            instructions="Say exactly: 'Welcome back, James. I'm ready for your call debrief.'"
-        )
 if __name__ == "__main__":
     agents.cli.run_app(server)
