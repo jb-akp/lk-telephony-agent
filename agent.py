@@ -1,6 +1,5 @@
 import json
 import logging
-import os
 import requests
 from datetime import datetime
 from dotenv import load_dotenv
@@ -52,10 +51,9 @@ class Assistant(Agent):
         """
         run_ctx.disallow_interruptions()
         
-        # Notify user (generate_reply works with RealtimeModel, say() requires TTS)
+        # Notify user we're retrieving the data
         await run_ctx.session.generate_reply(
-            instructions="Say: 'One second, I'm checking.'",
-            allow_interruptions=False
+            instructions="Let me check that for you."
         )
         
         response = requests.get("https://n8n.n8nsite.live/webhook/memory")
@@ -121,11 +119,8 @@ async def my_agent(ctx: agents.JobContext):
                 "transcript": json.dumps(session.history.to_dict()),
                 "timestamp": datetime.utcnow().isoformat()
             }
-            try:
-                response = requests.post("https://n8n.n8nsite.live/webhook/api/path", json=payload)
-                logging.info(f"Transcript sent to n8n. Status: {response.status_code}")
-            except Exception as e:
-                logging.error(f"Failed to send transcript to n8n: {e}")
+            response = requests.post("https://n8n.n8nsite.live/webhook/api/path", json=payload)
+            logging.info(f"Transcript sent to n8n. Status: {response.status_code}")
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
     
