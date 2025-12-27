@@ -81,9 +81,6 @@ async def my_agent(ctx: agents.JobContext):
     # Detect if this is a phone call (SIP participant)
     is_phone = any(p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP for p in ctx.room.remote_participants.values())
 
-    source_log = "PHONE_CALL" if is_phone else "WEB_INTERFACE"
-    logging.info(f"Connecting via: {source_log} (Room: {ctx.room.name})")
-
     model = openai.realtime.RealtimeModel(
         model="gpt-4o-mini-realtime-preview-2024-12-17",
         voice="coral",
@@ -116,7 +113,7 @@ async def my_agent(ctx: agents.JobContext):
         if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
             logging.info("SIP participant disconnected, sending transcript to n8n...")
             payload = {
-                "transcript": json.dumps(session.history.to_dict()),
+                "transcript": json.dumps(session.history.to_dict()["messages"]),
                 "timestamp": datetime.utcnow().isoformat()
             }
             response = requests.post("https://n8n.n8nsite.live/webhook/api/path", json=payload)
