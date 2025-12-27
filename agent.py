@@ -4,7 +4,7 @@ import requests
 from datetime import datetime
 from dotenv import load_dotenv
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, AutoSubscribe, RunContext
+from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext
 from livekit.agents.llm import function_tool
 from livekit.plugins import openai, noise_cancellation, bey
 
@@ -61,32 +61,20 @@ class Assistant(Agent):
         
         return memory
     
-    async def on_enter(self):
-        """Generate initial greeting based on connection source."""
-        if not self.is_phone:
-            await self.session.generate_reply(
-                instructions="Welcome back, James. How can I help you today?"
-            )
-        else:
-            await self.session.generate_reply(
-                instructions="Say exactly: 'Hello, this is James's AI. Who is calling?'"
-            )
 
 server = AgentServer()
 
 @server.rtc_session(agent_name="my-vision-agent")
 async def my_agent(ctx: agents.JobContext):
-    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-    
     # Detect if this is a phone call (SIP participant)
     is_phone = any(p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP for p in ctx.room.remote_participants.values())
 
-    model = openai.realtime.RealtimeModel(
-        model="gpt-4o-mini-realtime-preview-2024-12-17",
-        voice="coral",
+    session = AgentSession(
+        llm=openai.realtime.RealtimeModel(
+            model="gpt-4o-mini-realtime-preview-2024-12-17",
+            voice="coral",
+        )
     )
-
-    session = AgentSession(llm=model)
 
     # Start avatar only for web (phones can't see video)
     if not is_phone:
@@ -101,9 +89,7 @@ async def my_agent(ctx: agents.JobContext):
         agent=Assistant(is_phone=is_phone),
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony() 
-                if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP 
-                else noise_cancellation.BVC(),
+                noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
             ),
         ),
     )
@@ -120,6 +106,11 @@ async def my_agent(ctx: agents.JobContext):
             logging.info(f"Transcript sent to n8n. Status: {response.status_code}")
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
+    
+    await session.generate_reply(
+        instructions="Welcome back, James. How can I help you today?" if not is_phone 
+        else "Say exactly: 'Hello, this is James's AI. Who is calling?'"
+    )
     
 if __name__ == "__main__":
     agents.cli.run_app(server)
