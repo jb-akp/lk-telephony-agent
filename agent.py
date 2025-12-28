@@ -4,7 +4,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext, AutoSubscribe
+from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext
 from livekit.agents.llm import function_tool
 from livekit.plugins import openai, noise_cancellation, bey
 
@@ -25,10 +25,8 @@ async def get_call_debrief(run_ctx: RunContext) -> str:
     """
     run_ctx.disallow_interruptions()
     
-    logging.info("get_call_debrief tool executing...")
     response = requests.get("https://n8n.n8nsite.live/webhook/memory")
     memory = response.text if response.status_code == 200 else ""
-    logging.info(f"get_call_debrief tool completed. Status: {response.status_code}, Data length: {len(memory)}")
     
     return memory
 
@@ -58,7 +56,7 @@ class Assistant(Agent):
             
             YOUR GOALS:
             1. Welcome James back.
-            2. When James asks about voicemails, recent calls, a debrief, call history, or what happened in previous conversations, you MUST use the get_call_debrief function tool to retrieve the information from Google Sheets. First, say "Let me check that for you" and COMPLETE the sentence fully before calling the tool. Do not interrupt your own speech.
+            2. When James asks about voicemails, recent calls, a debrief, call history, or what happened in previous conversations, you MUST use the get_call_debrief function tool to retrieve the information from Google Sheets.
             3. After the tool completes:
                - If the tool returns data, summarize it clearly and accurately.
                - If the tool returns empty data or no calls are found, say "I don't see any recent calls in your history yet. Once calls come in, I'll be able to provide you with summaries."
@@ -77,8 +75,6 @@ server = AgentServer()
 
 @server.rtc_session(agent_name="my-vision-agent")
 async def my_agent(ctx: agents.JobContext):
-    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
-    
     # Detect if this is a phone call (SIP participant)
     is_phone = any(p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP for p in ctx.room.remote_participants.values())
 
