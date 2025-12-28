@@ -1,7 +1,9 @@
 import json
 import logging
+import os
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from livekit import agents, rtc
 from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext
@@ -25,7 +27,7 @@ async def get_call_debrief(run_ctx: RunContext) -> str:
     """
     run_ctx.disallow_interruptions()
     
-    response = requests.get("https://n8n.n8nsite.live/webhook/memory")
+    response = requests.get(os.getenv("N8N_MEMORY_WEBHOOK_URL"))
     memory = response.text if response.status_code == 200 else ""
     
     return memory
@@ -109,9 +111,9 @@ async def my_agent(ctx: agents.JobContext):
             logging.info("SIP participant disconnected, sending transcript to n8n...")
             payload = {
                 "transcript": json.dumps(session.history.to_dict()["items"]),
-                "timestamp": datetime.now(timezone(timedelta(hours=-8))).isoformat()
+                "timestamp": datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
             }
-            response = requests.post("https://n8n.n8nsite.live/webhook/api/path", json=payload)
+            response = requests.post(os.getenv("N8N_TRANSCRIPT_WEBHOOK_URL"), json=payload)
             logging.info(f"Transcript sent to n8n. Status: {response.status_code}")
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
