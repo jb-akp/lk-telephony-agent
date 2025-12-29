@@ -5,14 +5,14 @@ import requests
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
-from livekit import agents, rtc
-from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext
+from livekit import agents, rtc, api
+from livekit.agents import AgentServer, AgentSession, Agent, room_io, RunContext, get_job_context, AutoSubscribe
 from livekit.agents.llm import function_tool
 from livekit.plugins import openai, noise_cancellation, bey
 
 load_dotenv(".env.local")
 
-# Define tool outside class so it can be conditionally included
+# Define tools outside class so they can be conditionally included
 @function_tool()
 async def get_call_debrief(run_ctx: RunContext) -> str:
     """Retrieve recent call history, voicemail summaries, and debrief information from Google Sheets.
@@ -32,42 +32,40 @@ async def get_call_debrief(run_ctx: RunContext) -> str:
     
     return memory
 
+@function_tool()
+async def hangup_spam_call(run_ctx: RunContext) -> str:
+    """Immediately hang up the call if the caller mentions: car warranty, extended warranty, insurance offers, debt relief, credit card offers, timeshare, or any unsolicited sales pitch. Call this tool as soon as you detect any of these spam indicators."""
+    run_ctx.disallow_interruptions()
+    handle = await run_ctx.session.generate_reply(
+        instructions="Repeat this exact message word for word, do not change or add anything: 'I'm not interested in unsolicited offers. Please remove this number from your calling list. Have a good day.'"
+    )
+    await handle
+    
+    # Hang up by deleting the room
+    ctx = get_job_context()
+    if ctx is not None:
+        await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
+    
+    return "Call ended"
+
 class Assistant(Agent):
     def __init__(self, is_phone) -> None:
         # Customize persona based on connection source
         if is_phone:
             # Phone mode: Gatekeeper persona
             instructions = """
-            You are "Sarah", a protective AI Receptionist for James.
-            You are currently answering a real phone call (SIP) that was forwarded from James's voicemail.
-            
-            YOUR GOALS:
-            1. Screen the call. James is busy and didn't answer, so the call was forwarded to you.
-            2. If the caller is SPAM (car warranty, insurance, etc.), tell them to remove this number and hang up.
-            3. If it is a legitimate call, collect their name and full message. Let them finish speaking completely before ending the call.
-            
-            Keep responses short (under 2 sentences). Be professional but firm. Make sure to capture the complete message from the caller.
-            Always be concise and direct. Avoid unnecessary elaboration or verbose explanations.
+            You are "Sarah", a protective AI Receptionist for James, answering a phone call forwarded from voicemail.
+            PRIORITY: If caller mentions car warranty, extended warranty, insurance offers, debt relief, credit card offers, timeshare, or any unsolicited sales pitch, IMMEDIATELY call hangup_spam_call. Do not engage or ask questions.
+            For legitimate calls: Screen the call, collect name and full message. Let them finish speaking before ending.
+            Keep responses under 2 sentences. Be professional, firm, and concise.
             """
-            tools = []  # No tools for phone mode
+            tools = [hangup_spam_call]  # Hangup tool for spam detection
         else:
             # Web mode: Chief of Staff persona
             instructions = """
-            You are "Sarah", James's Chief of Staff.
-            You are currently appearing as a 3D Avatar on the web dashboard.
-            
-            YOUR GOALS:
-            1. Welcome James back.
-            2. When James asks about voicemails, recent calls, a debrief, call history, or what happened in previous conversations, you MUST use the get_call_debrief function tool to retrieve the information from Google Sheets.
-            3. After the tool completes:
-               - If the tool returns data, summarize it clearly and accurately.
-               - If the tool returns empty data or no calls are found, say "I don't see any recent calls in your history yet. Once calls come in, I'll be able to provide you with summaries."
-               - NEVER make up or invent call information. Only report what the tool actually returns.
-            4. Offer to help with anything else after providing the debrief.
-            
-            IMPORTANT: Voicemails, calls, and call history all refer to the same thing. Always use the get_call_debrief tool when asked about any of these.
-            
-            COMMUNICATION STYLE: Always be concise and direct. Keep responses brief and to the point. Avoid lengthy explanations unless specifically asked for detail. For general knowledge questions, provide 1-2 sentences maximum.
+            You are "Sarah", James's Chief of Staff, appearing as a 3D Avatar on the web dashboard.
+            When asked about voicemails, calls, or call history, use get_call_debrief to retrieve from Google Sheets. If data exists, summarize it. If empty, say "I don't see any recent calls yet." Never invent call information.
+            Keep responses concise (1-2 sentences unless detail is requested). Welcome James back and offer help.
             """
             tools = [get_call_debrief]  # Include tool for web mode
         
@@ -77,8 +75,17 @@ server = AgentServer()
 
 @server.rtc_session(agent_name="my-vision-agent")
 async def my_agent(ctx: agents.JobContext):
+    # Connect to room first to see participants
+    await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
+    
     # Detect if this is a phone call (SIP participant)
-    is_phone = any(p.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP for p in ctx.room.remote_participants.values())
+    is_phone = False
+    for participant in ctx.room.remote_participants.values():
+        if participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP:
+            is_phone = True
+            break
+    
+    logging.info(f"is_phone: {is_phone}, room: {ctx.room.name}")
 
     session = AgentSession(
         llm=openai.realtime.RealtimeModel(
@@ -88,11 +95,11 @@ async def my_agent(ctx: agents.JobContext):
     )
 
     # Start avatar only for web (phones can't see video)
-    # if not is_phone:
-    #     avatar = bey.AvatarSession(
-    #         avatar_id="2bc759ab-a7e5-4b91-941d-9e42450d6546", 
-    #     )
-    #     await avatar.start(session, room=ctx.room)
+    if not is_phone:
+        avatar = bey.AvatarSession(
+            avatar_id="2bc759ab-a7e5-4b91-941d-9e42450d6546", 
+        )
+        await avatar.start(session, room=ctx.room)
 
     # Start agent with appropriate persona
     await session.start(
@@ -118,10 +125,14 @@ async def my_agent(ctx: agents.JobContext):
     
     ctx.room.on("participant_disconnected", on_participant_disconnected)
     
-    await session.generate_reply(
-        instructions="Welcome back, James. How can I help you today?" if not is_phone 
-        else "Say exactly: 'Hello, this is James's AI. Who is calling?'"
-    )
+    if is_phone:
+        await session.generate_reply(
+            instructions="Say exactly these words: 'Hello, this is James's AI. Who is calling?'"
+        )
+    else:
+        await session.generate_reply(
+            instructions="Welcome back, James. How can I help you today?"
+        )
     
 if __name__ == "__main__":
     agents.cli.run_app(server)
