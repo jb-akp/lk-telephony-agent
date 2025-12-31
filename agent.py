@@ -16,12 +16,15 @@ load_dotenv(".env.local")
 
 def send_transcript_to_n8n(transcript_data: str, timestamp: str):
     """Send transcript to n8n webhook."""
+
     payload = {
         "transcript": transcript_data,
         "timestamp": timestamp
     }
+
     response = requests.post(os.getenv("N8N_TRANSCRIPT_WEBHOOK_URL"), json=payload)
     logging.info(f"Transcript sent, status: {response.status_code}")
+    
     return response.status_code == 200
 
 @function_tool()
@@ -33,10 +36,10 @@ async def get_call_debrief(run_ctx: RunContext) -> str:
         response = requests.get(os.getenv("N8N_MEMORY_WEBHOOK_URL"))
         return response.text if response.status_code == 200 else ""
     except Exception:
-        return ""
+        return "No data available"
 
 @function_tool()
-async def hangup_call(run_ctx: RunContext, is_spam: bool = False) -> str:
+async def hangup_call(run_ctx: RunContext, is_spam: bool = False):
     """Hang up the call. Use is_spam=True if the caller mentions: car warranty, extended warranty, insurance offers, debt relief, credit card offers, timeshare, or any unsolicited sales pitch. Use is_spam=False for normal call endings after collecting the caller's information."""
     logging.info(f"hangup_call executed, spam: {is_spam}")
     run_ctx.disallow_interruptions()
@@ -53,15 +56,13 @@ async def hangup_call(run_ctx: RunContext, is_spam: bool = False) -> str:
     timestamp = datetime.now(ZoneInfo("America/Los_Angeles")).isoformat()
     
     ctx = get_job_context()
-    if ctx is not None:
-        try:
-            logging.info(f"Deleting room: {ctx.room.name}")
-            await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
-        except Exception as e:
-            logging.error(f"Delete room failed: {e}")
+    try:
+        logging.info(f"Deleting room: {ctx.room.name}")
+        await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
+    except Exception as e:
+        logging.error(f"Delete room failed: {e}")
     
     send_transcript_to_n8n(transcript_data, timestamp)
-    return ""
 
 class Assistant(Agent):
     def __init__(self, is_phone) -> None:
@@ -70,7 +71,7 @@ class Assistant(Agent):
             You are "Sarah", a protective AI Receptionist for James, answering a phone call forwarded from voicemail.
             PRIORITY: If the caller mentions ANY of these: car warranty, selling a car warranty, extended warranty, insurance offers, debt relief, credit card offers, timeshare, or ANY unsolicited sales pitch, you MUST IMMEDIATELY call the hangup_call function tool with is_spam=True. Do not respond verbally first. Do not ask questions. Just call the tool immediately.
             For legitimate calls: Screen the call, collect name and full message. Let them finish speaking before ending. 
-            IMPORTANT: When the caller says goodbye, thanks you, says they're done, or indicates the conversation is complete, you MUST IMMEDIATELY call hangup_call with is_spam=False. Do not continue the conversation after they say goodbye. Just call the tool right away.
+            IMPORTANT: When the caller says goodbye, thanks you, says they're done, or indicates the conversation is complete, you MUST IMMEDIATELY call hangup_call with is_spam=False. Do NOT say goodbye or thank you verbally - the tool will handle the goodbye message. Just call the tool immediately when they're done.
             Keep responses under 2 sentences. Be professional, firm, and concise.
             """
             tools = [hangup_call]
@@ -101,11 +102,11 @@ async def my_agent(ctx: agents.JobContext):
         )
     )
 
-    if not is_phone:
-        avatar = bey.AvatarSession(
-            avatar_id="2bc759ab-a7e5-4b91-941d-9e42450d6546", 
-        )
-        await avatar.start(session, room=ctx.room)
+    # if not is_phone:
+    #     avatar = bey.AvatarSession(
+    #         avatar_id="2bc759ab-a7e5-4b91-941d-9e42450d6546", 
+    #     )
+    #     await avatar.start(session, room=ctx.room)
 
     await session.start(
         room=ctx.room,
