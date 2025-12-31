@@ -24,8 +24,6 @@ def send_transcript_to_n8n(transcript_data: str, timestamp: str):
 
     response = requests.post(os.getenv("N8N_TRANSCRIPT_WEBHOOK_URL"), json=payload)
     logging.info(f"Transcript sent, status: {response.status_code}")
-    
-    return response.status_code == 200
 
 @function_tool()
 async def get_call_debrief(run_ctx: RunContext) -> str:
