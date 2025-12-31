@@ -119,13 +119,11 @@ async def my_agent(ctx: agents.JobContext):
     )
 
     if is_phone:
-        await session.generate_reply(
-            instructions="Say: 'Hello, this is James's AI. Who is calling?'"
-        )
+        greeting = "Say: 'Hello, this is James's AI. Who is calling?'"
     else:
-        await session.generate_reply(
-            instructions="Say: 'Welcome back, James. How can I help you today?'"
-        )
+        greeting = "Say: 'Welcome back, James. How can I help you today?'"
+    
+    await session.generate_reply(instructions=greeting)
     
 if __name__ == "__main__":
     agents.cli.run_app(server)
