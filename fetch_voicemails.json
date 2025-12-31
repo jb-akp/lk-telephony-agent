@@ -53,7 +53,7 @@
     {
       "parameters": {
         "respondWith": "text",
-        "responseBody": "=   {{ $json.data.map(item => `- ${item['what happened']} (${item.time})`).join('\\n') }}",
+        "responseBody": "={{ $json.data.map(item => `${item['Voicemail Summary']} (${item['Time and Date']})`).join('\\n') }}",
         "options": {}
       },
       "type": "n8n-nodes-base.respondToWebhook",
@@ -121,7 +121,7 @@
     "executionOrder": "v1",
     "availableInMCP": false
   },
-  "versionId": "698edb67-fad0-4e76-b090-e6989c4b1161",
+  "versionId": "8d8bb24d-0eb7-4e4d-bc96-ab016a081e09",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "fc7268518492c14b539810323656b0e8863cc0cdf51a5a987437b8cef97537d8"
