@@ -57,7 +57,6 @@ async def hangup_call(run_ctx: RunContext, is_spam: bool = False) -> str:
         try:
             logging.info(f"Deleting room: {ctx.room.name}")
             await ctx.api.room.delete_room(api.DeleteRoomRequest(room=ctx.room.name))
-            logging.info("Room deleted")
         except Exception as e:
             logging.error(f"Delete room failed: {e}")
     
@@ -123,7 +122,10 @@ async def my_agent(ctx: agents.JobContext):
     else:
         greeting = "Say: 'Welcome back, James. How can I help you today?'"
     
-    await session.generate_reply(instructions=greeting)
+    await session.generate_reply(
+        instructions=greeting
+    )
     
 if __name__ == "__main__":
     agents.cli.run_app(server)
+
